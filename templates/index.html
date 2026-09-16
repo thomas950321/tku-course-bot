@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TKU_CourseBot 淡江搶課機器人</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft JhengHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 10px;
+            font-size: 2em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .subtitle {
+            text-align: center;
+            color: rgba(255,255,255,0.8);
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        .card-title {
+            font-size: 1.3em;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="password"], input[type="datetime-local"], select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            font-weight: normal;
+        }
+        .radio-group input[type="radio"] {
+            margin-right: 8px;
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-weight: bold;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+        .btn-danger {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+            color: white;
+        }
+        .btn-sm {
+            padding: 8px 15px;
+            font-size: 14px;
+        }
+        .course-list {
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .course-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .course-item:last-child {
+            border-bottom: none;
+        }
+        .course-item .action {
+            padding: 4px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 10px;
+            min-width: 50px;
+            text-align: center;
+        }
+        .action-add {
+            background: #d4edda;
+            color: #155724;
+        }
+        .action-remove {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .course-item .code {
+            flex: 1;
+            font-family: monospace;
+            font-size: 16px;
+        }
+        .course-item .delete-btn {
+            background: none;
+            border: none;
+            color: #dc3545;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 5px;
+        }
+        .course-item .delete-btn:hover {
+            color: #a71d2a;
+        }
+        .add-course-form {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .add-course-form select, .add-course-form input {
+            width: auto;
+        }
+        .add-course-form select {
+            width: 100px;
+        }
+        .add-course-form input {
+            flex: 1;
+        }
+        .log-area {
+            background: #1a1a2e;
+            color: #00ff88;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+        .log-area:empty::before {
+            content: "等待機器人啟動...";
+            color: #666;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+            animation: pulse 1.5s infinite;
+        }
+        .status-stopped {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .alert {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .footer {
+            text-align: center;
+            color: rgba(255,255,255,0.7);
+            margin-top: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TKU_CourseBot</h1>
+        <p class="subtitle">淡江大學搶課機器人 - HTTP模式</p>
+
+        <div id="alert" class="alert"></div>
+
+        <div class="card">
+            <div class="card-title">帳號設定</div>
+            <div class="form-group">
+                <label>學號</label>
+                <input type="text" id="account" placeholder="請輸入學號">
+            </div>
+            <div class="form-group">
+                <label>密碼</label>
+                <input type="password" id="password" placeholder="請輸入密碼">
+            </div>
+            <button class="btn btn-primary" onclick="saveAccount()">儲存帳號密碼</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">搶課設定</div>
+            <div class="form-group">
+                <label>語言</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="language" value="chinese" checked> 中文</label>
+                    <label><input type="radio" name="language" value="english"> English</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>執行模式</label>
+                <div class="radio-group">
+                    <label><input type="radio" name="mode" value="immediate" checked onchange="toggleSchedule()"> 立即</label>
+                    <label><input type="radio" name="mode" value="schedule" onchange="toggleSchedule()"> 預約搶課</label>
+                </div>
+            </div>
+            <div class="form-group" id="schedule-group" style="display:none;">
+                <label>預約時間</label>
+                <input type="datetime-local" id="schedule-time">
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">加退選清單</div>
+            <div class="course-list" id="course-list"></div>
+            <div class="add-course-form">
+                <select id="course-action">
+                    <option value="add">加選</option>
+                    <option value="remove">退選</option>
+                </select>
+                <input type="text" id="course-code" placeholder="開課代碼">
+                <button class="btn btn-success btn-sm" onclick="addCourse()">加入</button>
+            </div>
+            <button class="btn btn-primary" style="margin-top:10px;" onclick="saveCourses()">儲存清單</button>
+        </div>
+
+        <div class="card">
+            <div class="card-title">
+                執行搶課
+                <span id="status-badge" class="status-badge status-stopped">停止中</span>
+            </div>
+            <div class="log-area" id="log-area"></div>
+            <div class="btn-group">
+                <button class="btn btn-success" onclick="startBot()">開始搶課</button>
+                <button class="btn btn-danger" onclick="stopBot()">停止</button>
+            </div>
+        </div>
+
+        <div class="footer">
+            ~淡江大學搶課機器人 (TKU_CourseBot)~<br>
+            HTTP模式 - 無需瀏覽器，更快速穩定
+        </div>
+    </div>
+
+    <script>
+        let courses = [];
+
+        function showAlert(msg, type) {
+            const alert = document.getElementById('alert');
+            alert.textContent = msg;
+            alert.className = 'alert alert-' + type;
+            alert.style.display = 'block';
+            setTimeout(() => { alert.style.display = 'none'; }, 3000);
+        }
+
+        function toggleSchedule() {
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            document.getElementById('schedule-group').style.display = mode === 'schedule' ? 'block' : 'none';
+        }
+
+        function renderCourses() {
+            const list = document.getElementById('course-list');
+            if (courses.length === 0) {
+                list.innerHTML = '<div style="padding:20px;text-align:center;color:#999;">尚無課程</div>';
+                return;
+            }
+            list.innerHTML = courses.map((c, i) => `
+                <div class="course-item">
+                    <span class="action action-${c.action}">${c.action === 'add' ? '加選' : '退選'}</span>
+                    <span class="code">${c.code}</span>
+                    <button class="delete-btn" onclick="removeCourse(${i})">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function addCourse() {
+            const action = document.getElementById('course-action').value;
+            const code = document.getElementById('course-code').value.trim();
+            if (!code) { showAlert('請輸入開課代碼', 'error'); return; }
+            courses.push({ action, code });
+            document.getElementById('course-code').value = '';
+            renderCourses();
+        }
+
+        function removeCourse(index) {
+            courses.splice(index, 1);
+            renderCourses();
+        }
+
+        async function saveAccount() {
+            const account = document.getElementById('account').value.trim();
+            const password = document.getElementById('password').value.trim();
+            if (!account || !password) { showAlert('帳號密碼不能為空', 'error'); return; }
+            const res = await fetch('/api/save_account', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account, password })
+            });
+            const data = await res.json();
+            showAlert(data.msg, data.ok ? 'success' : 'error');
+        }
+
+        async function loadAccount() {
+            const res = await fetch('/api/load_account');
+            const data = await res.json();
+            if (data.ok) {
+                document.getElementById('account').value = data.account;
+                document.getElementById('password').value = data.password;
+            }
+        }
+
+        async function saveCourses() {
+            const res = await fetch('/api/save_courses', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ courses })
+            });
+            const data = await res.json();
+            showAlert(data.msg, data.ok ? 'success' : 'error');
+        }
+
+        async function loadCourses() {
+            const res = await fetch('/api/load_courses');
+            const data = await res.json();
+            if (data.ok) {
+                courses = data.courses;
+                renderCourses();
+            }
+        }
+
+        async function startBot() {
+            const account = document.getElementById('account').value.trim();
+            const password = document.getElementById('password').value.trim();
+            const language = document.querySelector('input[name="language"]:checked').value;
+            const mode = document.querySelector('input[name="mode"]:checked').value;
+            let schedule_time = '';
+            if (mode === 'schedule') {
+                const dt = document.getElementById('schedule-time').value;
+                if (!dt) { showAlert('請選擇預約時間', 'error'); return; }
+                schedule_time = dt.replace('T', ' ') + ':00';
+            }
+            if (!account || !password) { showAlert('請先輸入帳號密碼', 'error'); return; }
+            if (courses.length === 0) { showAlert('加退選清單為空', 'error'); return; }
+            const res = await fetch('/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ account, password, language, mode, schedule_time, courses })
+            });
+            const data = await res.json();
+            showAlert(data.msg, data.ok ? 'success' : 'error');
+            if (data.ok) updateStatus();
+        }
+
+        async function stopBot() {
+            await fetch('/api/stop', { method: 'POST' });
+            showAlert('已停止', 'success');
+            updateStatus();
+        }
+
+        async function updateStatus() {
+            const res = await fetch('/api/status');
+            const data = await res.json();
+            const badge = document.getElementById('status-badge');
+            if (data.running) {
+                badge.textContent = '運行中';
+                badge.className = 'status-badge status-running';
+            } else {
+                badge.textContent = '停止中';
+                badge.className = 'status-badge status-stopped';
+            }
+            const logArea = document.getElementById('log-area');
+            logArea.textContent = data.logs.join('\n');
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        renderCourses();
+        loadAccount();
+        loadCourses();
+        setInterval(updateStatus, 1000);
+    </script>
+</body>
+</html>
