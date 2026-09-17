@@ -61,7 +61,30 @@ bot_status = {
 }
 
 
+def FindErrorMessage(html_doc):
+    if not html_doc:
+        return ""
+    try:
+        soup = BeautifulSoup(html_doc, 'html.parser')
+        for tag_id in ["lblMsg", "lblError", "lblErr", "divMsg", "lblMessage"]:
+            elem = soup.find(id=tag_id)
+            if elem and elem.text.strip():
+                lines = [l.strip() for l in elem.text.strip().splitlines() if l.strip()]
+                return " ".join(lines)
+        for elem in soup.find_all(["span", "td"]):
+            txt = elem.text.strip()
+            if 5 < len(txt) < 300:
+                if any(kw in txt for kw in ["目前不是您的選課開放時間", "密碼錯誤", "驗證碼錯誤", "非選課時間", "系統未開放", "重複登入", "學號錯誤", "無權限"]):
+                    lines = [l.strip() for l in txt.splitlines() if l.strip()]
+                    return " ".join(lines)
+    except Exception:
+        pass
+    return ""
+
+
 def FindLoginData(html_doc):
+    if not html_doc:
+        return None, None, None
     soup = BeautifulSoup(html_doc, 'html.parser')
     viewstate = soup.find(id="__VIEWSTATE")
     viewstategenerator = soup.find(id="__VIEWSTATEGENERATOR")
@@ -72,24 +95,34 @@ def FindLoginData(html_doc):
 
 
 def GetVerfcode(session, LoginURL, VerfURL):
-    r = session.get(LoginURL)
-    r.encoding = "utf8"
-    vc_data = session.get(VerfURL)
-    if vc_data.status_code == 200:
-        vc_array = json.loads(vc_data.text)
-        vc_ans = []
-        for raw_num in vc_array:
-            vc_ans.append(NumHash.get(str(raw_num), ""))
-        verfcode_raw = "".join(vc_ans)
-        return verfcode_raw, r
-    return "", r
+    try:
+        r = session.get(LoginURL, timeout=10)
+        r.encoding = "utf8"
+        vc_data = session.get(VerfURL, timeout=10)
+        if vc_data.status_code == 200:
+            vc_array = json.loads(vc_data.text)
+            vc_ans = []
+            for raw_num in vc_array:
+                vc_ans.append(NumHash.get(str(raw_num), ""))
+            verfcode_raw = "".join(vc_ans)
+            return verfcode_raw, r, None
+        return "", r, f"驗證碼伺服器回應異常 (HTTP {vc_data.status_code})"
+    except requests.exceptions.RequestException as e:
+        return "", None, f"網路連線異常: {e}"
 
 
 def Login(session, account, password, LoginURL, VerfURL):
-    vfcode, r = GetVerfcode(session, LoginURL, VerfURL)
+    vfcode, r, err_msg = GetVerfcode(session, LoginURL, VerfURL)
+    if err_msg:
+        return None, 1, err_msg
+    if not r or not r.text:
+        return None, 1, "無法存取登入頁面"
+
     viewstate, vstgen, eventval = FindLoginData(r.text)
     if not viewstate:
-        return r, 1
+        extracted_err = FindErrorMessage(r.text)
+        return r, 1, extracted_err if extracted_err else "無法解析 ViewState (選課系統可能維護中或未開放)"
+
     payload_login = {
         "txtStuNo": str(account),
         "txtPSWD": str(password),
@@ -100,60 +133,83 @@ def Login(session, account, password, LoginURL, VerfURL):
         "__VIEWSTATEGENERATOR": str(vstgen),
         "__EVENTVALIDATION": str(eventval)
     }
-    r = session.post(LoginURL, data=payload_login)
-    if "btnLogout" in r.text:
-        return r, 0
-    return r, 1
+    try:
+        res = session.post(LoginURL, data=payload_login, timeout=10)
+        if "btnLogout" in res.text:
+            return res, 0, "登入成功"
+        
+        extracted_err = FindErrorMessage(res.text)
+        return res, 1, extracted_err if extracted_err else "登入失敗 (請檢查學號密碼或驗證碼)"
+    except requests.exceptions.RequestException as e:
+        return None, 1, f"網路連線異常: {e}"
 
 
 def AddCourse(session, open_code, ActionURL):
-    viewstate, vstgen, eventval = FindLoginData(session.get(ActionURL).text)
-    if not viewstate:
-        return None, "系統錯誤"
-    payload = {
-        "__EVENTTARGET": "btnAdd",
-        "__EVENTARGUMENT": "",
-        "__VIEWSTATE": str(viewstate),
-        "__VIEWSTATEGENERATOR": str(vstgen),
-        "__EVENTVALIDATION": str(eventval),
-        "txtCosEleSeq": str(open_code)
-    }
-    r = session.post(ActionURL, data=payload)
-    import re
-    respdata = re.findall("[E,I][0-9]{3}", r.text)
-    for code in respdata:
-        if code == "I000":
-            return r, "加選成功"
-        elif code == "E054":
-            return r, "名額已滿"
-        elif code == "E045":
-            return r, "重複加選"
-        elif code == "E999":
-            return r, "加選失敗"
-    return r, "未知結果"
+    try:
+        act_page = session.get(ActionURL, timeout=10)
+        viewstate, vstgen, eventval = FindLoginData(act_page.text)
+        if not viewstate:
+            extracted_err = FindErrorMessage(act_page.text)
+            return None, extracted_err if extracted_err else "無法解析選課頁面 ViewState"
+
+        payload = {
+            "__EVENTTARGET": "btnAdd",
+            "__EVENTARGUMENT": "",
+            "__VIEWSTATE": str(viewstate),
+            "__VIEWSTATEGENERATOR": str(vstgen),
+            "__EVENTVALIDATION": str(eventval),
+            "txtCosEleSeq": str(open_code)
+        }
+        r = session.post(ActionURL, data=payload, timeout=10)
+        import re
+        respdata = re.findall("[E,I][0-9]{3}", r.text)
+        for code in respdata:
+            if code == "I000":
+                return r, "加選成功"
+            elif code == "E054":
+                return r, "名額已滿"
+            elif code == "E045":
+                return r, "重複加選"
+            elif code == "E999":
+                extracted_err = FindErrorMessage(r.text)
+                return r, f"加選失敗 ({extracted_err})" if extracted_err else "加選失敗"
+        
+        extracted_err = FindErrorMessage(r.text)
+        return r, extracted_err if extracted_err else "加選請求完成"
+    except requests.exceptions.RequestException as e:
+        return None, f"網路連線異常: {e}"
 
 
 def RemoveCourse(session, open_code, ActionURL):
-    viewstate, vstgen, eventval = FindLoginData(session.get(ActionURL).text)
-    if not viewstate:
-        return None, "系統錯誤"
-    payload = {
-        "__EVENTTARGET": "btnDel",
-        "__EVENTARGUMENT": "",
-        "__VIEWSTATE": str(viewstate),
-        "__VIEWSTATEGENERATOR": str(vstgen),
-        "__EVENTVALIDATION": str(eventval),
-        "txtCosEleSeq": str(open_code)
-    }
-    r = session.post(ActionURL, data=payload)
-    import re
-    respdata = re.findall("[E,I][0-9]{3}", r.text)
-    for code in respdata:
-        if code == "I000":
-            return r, "退選成功"
-        elif code == "E999":
-            return r, "退選失敗"
-    return r, "未知結果"
+    try:
+        act_page = session.get(ActionURL, timeout=10)
+        viewstate, vstgen, eventval = FindLoginData(act_page.text)
+        if not viewstate:
+            extracted_err = FindErrorMessage(act_page.text)
+            return None, extracted_err if extracted_err else "無法解析選課頁面 ViewState"
+
+        payload = {
+            "__EVENTTARGET": "btnDel",
+            "__EVENTARGUMENT": "",
+            "__VIEWSTATE": str(viewstate),
+            "__VIEWSTATEGENERATOR": str(vstgen),
+            "__EVENTVALIDATION": str(eventval),
+            "txtCosEleSeq": str(open_code)
+        }
+        r = session.post(ActionURL, data=payload, timeout=10)
+        import re
+        respdata = re.findall("[E,I][0-9]{3}", r.text)
+        for code in respdata:
+            if code == "I000":
+                return r, "退選成功"
+            elif code == "E999":
+                extracted_err = FindErrorMessage(r.text)
+                return r, f"退選失敗 ({extracted_err})" if extracted_err else "退選失敗"
+        
+        extracted_err = FindErrorMessage(r.text)
+        return r, extracted_err if extracted_err else "退選請求完成"
+    except requests.exceptions.RequestException as e:
+        return None, f"網路連線異常: {e}"
 
 
 def add_log(msg):
@@ -194,17 +250,17 @@ def run_bot(account, password, language, mode, schedule_time, course_list):
 
     for attempt in range(3):
         add_log(f"嘗試登入 (第{attempt+1}次)...")
-        r, state = Login(session, account, password, LoginURL, VerfURL)
+        r, state, msg = Login(session, account, password, LoginURL, VerfURL)
         if state == 0:
             add_log("登入成功")
             bot_status["login_ok"] = True
             break
         else:
-            add_log("登入失敗，重試中...")
+            add_log(f"登入失敗: {msg}")
             time.sleep(1)
 
     if not bot_status["login_ok"]:
-        add_log("登入失敗，機器人停止")
+        add_log("多次嘗試失敗，搶課流程終止")
         bot_status["running"] = False
         return
 
@@ -220,7 +276,7 @@ def run_bot(account, password, language, mode, schedule_time, course_list):
         add_log(f"{code}: {msg}")
         time.sleep(1)
 
-    add_log("搶課完成")
+    add_log("搶課流程執行完成")
     bot_status["running"] = False
 
 
